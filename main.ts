@@ -1,6 +1,7 @@
 import inquirer from 'inquirer';
 import createWallets  from './src/createWallets';
 import checkBalance from './src/actions/checkBalance';
+import manageWallets from './src/manageWallets';
 const displayMainMenu = async () => {
     while(true){
         const choices = [
@@ -70,7 +71,7 @@ const displayCreateWalletMenu = async () => {
 
 const displayManageWalletsMenu = async () => {
     // TODO: Implement the manage wallets menu
-    await checkBalance();
+    await manageWallets();
 }
 
 const displayImportWalletsMenu = async () => {

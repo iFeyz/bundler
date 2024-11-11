@@ -24,23 +24,24 @@ async function setBuyAmount(solAmount: number){
 
     const buys : walletBuy[] = [];
 
-    let remainingPercentage = 100;
-    let remainingWallets = keypairs.length;
+    const totalWallets = keypairs.length + 1;
     const percentages: number[] = [];
+    let remainingPercentage = 100;
 
-    for (let i = 0; i < keypairs.length; i++){
-        const maxPossiblePercent = Math.min(30, remainingPercentage - ((remainingWallets - 1) * 5));
-        // Ensure minimum 5% for remaining wallets
-        const minPercent = Math.min(5, remainingPercentage - ((remainingWallets - 1) * 5));
-        
-        // Generate random percentage between min and max
-        const randomPercent = Math.random() * (maxPossiblePercent - minPercent) + minPercent;
-        percentages.push(randomPercent);
-        remainingPercentage -= randomPercent;
-        remainingWallets--;
+    for (let i = 0; i < totalWallets - 1; i++) {
+        const minPercent = 5;
+        const maxPercent = Math.min(30, remainingPercentage - (5 * (totalWallets - i - 1)));
+        const percent = Math.floor(Math.random() * (maxPercent - minPercent + 1) + minPercent);
+        percentages.push(percent);
+        remainingPercentage -= percent;
     }
+    percentages.push(remainingPercentage);
 
-    for (let i = 0; i < keypairs.length; i++){
+    const totalPercent = percentages.reduce((a, b) => a + b, 0);
+    console.log('Pourcentages:', percentages, 'Total:', totalPercent + '%');
+
+    for (let i = 0; i < totalWallets; i++){
+        
         const walletSolAmount = solAmount * (percentages[i] / 100);
         const solAmountLamports = walletSolAmount * LAMPORTS_PER_SOL;
         //Bound curve calculation
@@ -65,15 +66,24 @@ async function setBuyAmount(solAmount: number){
 		initialRealTokenReserves -= tokensBought;
 		initialVirtualTokenReserves -= tokensBought;
 		totalTokensBought += tokensBought;
-        try {
-            const walletPath = join(__dirname, '../../wallets', `wallet-${keypairs[i].publicKey.toBase58().slice(0, 8)}.json`);
-            await saveToFile(walletPath, JSON.stringify(buys[i], null, 2));
-        } catch (error) {
-            console.error('Erreur lors de l\'enregistrement des wallets:', error);
+        if(i == 0){
+            try {       
+                const walletPath = join(__dirname, '../../wallet-main', `wallet-main.json`);
+                await saveToFile(walletPath, JSON.stringify(buys[i], null, 2));
+            } catch (error) {
+                console.error('Erreur lors de l\'enregistrement  du main-wallet :', error);
+            }
+        } else {
+            try {
+                const walletPath = join(__dirname, '../../wallets', `wallet-${keypairs[i-1].publicKey.toBase58().slice(0, 8)}.json`);
+                await saveToFile(walletPath, JSON.stringify(buys[i], null, 2));
+            } catch (error) {
+                console.error('Erreur lors de l\'enregistrement des wallets:', error);
+            }
         }
     }
 
     return buys;
 }
-setBuyAmount(1);
+
 export default setBuyAmount;

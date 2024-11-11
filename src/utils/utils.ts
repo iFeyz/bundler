@@ -42,3 +42,6 @@ export async function saveToFile(filePath : string, data : string){
     };
     fs.writeFileSync(filePath, JSON.stringify(mergedData, null, 2));
 }
+
+console.log(loadKeypairs().length);
+console.log(loadKeypairs());

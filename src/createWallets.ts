@@ -2,7 +2,23 @@ import { Keypair } from '@solana/web3.js';
 import * as fs from 'fs';
 import inquirer from 'inquirer';
 
+
+
 async function createWallets() {
+
+    const createMainWallet = () => {
+        const wallet = Keypair.generate();
+        const walletData = {
+            publicKey: wallet.publicKey.toString(),
+            privateKey: Array.from(wallet.secretKey)
+        };
+        fs.writeFileSync(
+            `./wallet-main/wallet-main.json`,
+            JSON.stringify(walletData, null, 2)
+        );
+        console.log(`Wallet principale créée avec succès! Clé publique: ${walletData.publicKey}`);
+    }
+
     // Fonction pour créer un wallet
     const createSingleWallet = () => {
         const wallet = Keypair.generate();
@@ -61,10 +77,16 @@ async function createWallets() {
                         }
                     ]);
 
+                    createMainWallet();
+
                     for (let i = 0; i < amount; i++) {
-                        createSingleWallet();
+               
+                            createSingleWallet();
+                        
                     }
-              
+            
+
+
                     console.log(`\n${amount} wallets ont été créés avec succès!`);
                     await inquirer.prompt([
                         {
@@ -88,4 +110,6 @@ async function createWallets() {
     await mainMenu();
 }
 
+
+// Create information for main wallet , deployer one to ensure the first buying
 export default createWallets;

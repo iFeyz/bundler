@@ -1,7 +1,8 @@
 import inquirer from 'inquirer';
 import createWallets from './createWallets';
 import checkBalance from './actions/checkBalance';
-
+import setBuyAmount from './actions/setBuyAmount';
+import buyPerWallets from './actions/buyPerWallets';
 const manageWallets = async () => {
     const {choice} = await inquirer.prompt([{
         type: 'list',
@@ -16,6 +17,8 @@ const manageWallets = async () => {
             break;
         case 'Achat par wallet':
             console.log('Achat par wallet');
-            break;
+            await buyPerWallets();
     }
 }
+
+export default manageWallets;
