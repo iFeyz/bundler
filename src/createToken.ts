@@ -1,13 +1,22 @@
 import inquirer from 'inquirer';
 import fs from 'fs';
 import axios from 'axios';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { Keypair, VersionedTransaction } from '@solana/web3.js';
-import { Program} from "@coral-xyz/anchor"
+import { BN, Program} from "@coral-xyz/anchor"
 import * as anchor from "@coral-xyz/anchor"
-import { PUMP_PROGRAM, rpc, wallet } from '../config';
+import { connection, PUMP_PROGRAM, rpc, wallet } from '../config';
 import { bs58 } from '@coral-xyz/anchor/dist/cjs/utils/bytes';
 import { loadKeypairs } from './utils/utils';
+import { MPL_TOKEN_METADATA_PROGRAM_ID, mintAuthority , eventAuthority } from '../config';
+import { getRandomTipAccount } from './clients/config';
+import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+import * as spl from '@solana/spl-token';
+import { TransactionInstruction } from '@solana/web3.js';
+import { SYSVAR_RENT_PUBKEY  } from '@solana/web3.js';
+import { TransactionMessage } from '@solana/web3.js';
+import { protobufPackage } from '../jito-ts/src/gen/geyser/confirmed_block';
+import { global, feeRecipient } from '../config';
 
 export default async function createToken() {
     const provider = new anchor.AnchorProvider(
@@ -89,7 +98,7 @@ export default async function createToken() {
 
     let formData = new FormData();
     if(data){
-        formData.append('file', await fs.openAsBlob(`./img/${files[0]}`));
+        formData.append('file', new Blob([data], { type: 'image/jpg' }));
     } else {
         console.log('No data found');
         return;
@@ -102,7 +111,7 @@ export default async function createToken() {
     formData.append('website', website);
     formData.append('showName', 'true');
 
-    let medatadata_uri
+    let metadata_uri;
 
     try {
         const response = await fetch('https://pump.fun/api/ipfs', {
@@ -116,11 +125,99 @@ export default async function createToken() {
         console.error('Error uploading metadata to IPFS:', error);
     }
 
-   /* const mintKp = Keypair.generate();
-    fs.writeFileSync(`./mint-wallet/mint-wallet.json`, JSON.stringify(mintKp, null, 2));
-    console.log(`Mint keypair: ${mintKp.publicKey.toString()}`);
-    const [bondingCurve] =  */
+    const dataPool = fs.readFileSync(`./pool/info.json`);
+    const pool = JSON.parse(dataPool.toString());
+    const mintKp = Keypair.fromSecretKey(Uint8Array.from(bs58.decode(pool.mintPk)));
+    console.log(`Mint keypair: ${mintKp.publicKey.toBase58()}`);
+    const [bondingCurve] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bonding-curve"), mintKp.publicKey.toBytes()], 
+        program.programId
+    )
+    const [metadata] = PublicKey.findProgramAddressSync(
+        [Buffer.from("metadata"), MPL_TOKEN_METADATA_PROGRAM_ID.toBytes(), mintKp.publicKey.toBytes()], 
+        MPL_TOKEN_METADATA_PROGRAM_ID
+    )
 
+    const account1 = mintKp.publicKey;
+    const account2 = mintAuthority;
+    const account3 = bondingCurve;
+    const account4 = global;
+    const account5 = MPL_TOKEN_METADATA_PROGRAM_ID;
+    const account6 = metadata;
+    const account7 = feeRecipient;
+
+    const createIx = await program.methods
+        .create(name , symbol, metadata_uri)
+        .accounts({
+            mint : account1,
+            mintAuthority : account2,
+            bondingCurve : account3,
+            associatedBondingCurve: bondingCurve,
+            global : account4,
+            mplTokenMetadata : account5,
+            metadata : account6,
+            systemProgram : SystemProgram.programId,
+            tokenProgram : spl.TOKEN_PROGRAM_ID,
+            associatedTokenProgram : spl.ASSOCIATED_TOKEN_PROGRAM_ID,
+            rent : SYSVAR_RENT_PUBKEY,
+            eventAuthority,
+            program : PUMP_PROGRAM
+        })
+    .instruction();
+
+    const ata = spl.getAssociatedTokenAddressSync(mintKp.publicKey, wallet.publicKey);
+    const ataIx = spl.createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, ata,wallet.publicKey, mintKp.publicKey,);
+
+
+    // Excratct token info from  main wallet
+    const mainWalletInfo = fs.readFileSync(`./wallet-main/wallet-main.json`);
+    const mainWallet = JSON.parse(mainWalletInfo.toString());
+    if(!mainWalletInfo){
+        console.log('No keypair info found');
+        return;
+    }
+    const amount =  new BN(mainWallet.tokenAmount, 16);
+	const solAmount = new BN(100000 *mainWallet.solAmount * LAMPORTS_PER_SOL);
+
+    const buyIx = await program.methods
+        .buy(amount , solAmount)
+        .accounts({
+            systemProgram : SystemProgram.programId,
+            tokenProgram : spl.TOKEN_PROGRAM_ID,
+            rent : SYSVAR_RENT_PUBKEY,
+            global : account4,
+            feeRecipient : account7,
+            eventAuthority,
+            mint : account1,
+            program : PUMP_PROGRAM,
+            bondingCurve : account3,
+            associatedBondingCurve : bondingCurve,
+            associatedUser: wallet.publicKey,
+        })
+        .instruction();
+
+    const tipIxn = SystemProgram.transfer({
+        fromPubkey: wallet.publicKey,
+        toPubkey: getRandomTipAccount(),
+        lamports: BigInt(0.01*LAMPORTS_PER_SOL),
+    })
+
+    const initIxs  : TransactionInstruction[] = [createIx, ataIx , buyIx , tipIxn];
+
+    const {blockhash } = await connection.getLatestBlockhash();
+
+    const messageV0 =  new TransactionMessage({
+        payerKey : wallet.publicKey,
+        instructions : initIxs,
+        recentBlockhash : blockhash,
+    }).compileToV0Message();
+
+    const fullTX = new VersionedTransaction(messageV0);
+    fullTX.sign([wallet , mintKp]);
+
+    bundledTxns.push(fullTX);
+
+    console.log(buyIx);
 
 }
 
@@ -139,7 +236,7 @@ async function testKeyInfo() {
 
 // Add this line at the bottom of the file to run the test
 // createToken();
-testKeyInfo();
+createToken()
 
 
 
