@@ -1,0 +1,59 @@
+    //*
+
+    const ata = spl.getAssociatedTokenAddressSync(mintKp.publicKey, wallet.publicKey);
+    const ataIx = spl.createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, ata,wallet.publicKey, mintKp.publicKey,);
+
+
+    // Excratct token info from  main wallet
+    const mainWalletInfo = fs.readFileSync(`./wallet-main/wallet-main.json`);
+    const mainWallet = JSON.parse(mainWalletInfo.toString());
+    if(!mainWalletInfo){
+        console.log('No keypair info found');
+        return;
+    }
+    const amount =  new BN(mainWallet.tokenAmount, 16);
+	const solAmount = new BN(mainWallet.solAmount * LAMPORTS_PER_SOL);
+
+    const buyIx = await program.methods
+        .buy(amount , solAmount)
+        .accounts({
+            systemProgram : SystemProgram.programId,
+            tokenProgram : spl.TOKEN_PROGRAM_ID,
+            rent : SYSVAR_RENT_PUBKEY,
+            global : account4,
+            feeRecipient : account7,
+            eventAuthority,
+            mint : account1,
+            program : PUMP_PROGRAM,
+            bondingCurve : account3,
+            associatedBondingCurve : assAccount,
+            associatedUser: wallet.publicKey,
+        })
+        .instruction();
+
+    const tipIxn = SystemProgram.transfer({
+        fromPubkey: wallet.publicKey,
+        toPubkey: getRandomTipAccount(),
+        lamports: BigInt(0.01*LAMPORTS_PER_SOL),
+    })
+
+    const initIxs  : TransactionInstruction[] = [createIx, ataIx  , tipIxn]; // buyIx is not needed
+
+    const {blockhash } = await connection.getLatestBlockhash();
+
+    const messageV0 =  new TransactionMessage({
+        payerKey : wallet.publicKey,
+        instructions : initIxs,
+        recentBlockhash : blockhash,
+    }).compileToV0Message();
+
+    const fullTX = new VersionedTransaction(messageV0);
+    fullTX.sign([wallet , mintKp]);
+
+    bundledTxns.push(fullTX);
+
+   // console.log(buyIx);
+    // TODO : test first buy 
+
+    sendBundle(bundledTxns);
+    

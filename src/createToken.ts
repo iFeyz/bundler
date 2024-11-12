@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import fs from 'fs';
+import fs, { openAsBlob } from 'fs';
 import axios from 'axios';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { Keypair, VersionedTransaction } from '@solana/web3.js';
@@ -17,6 +17,7 @@ import { SYSVAR_RENT_PUBKEY  } from '@solana/web3.js';
 import { TransactionMessage } from '@solana/web3.js';
 import { protobufPackage } from '../jito-ts/src/gen/geyser/confirmed_block';
 import { global, feeRecipient } from '../config';
+import  sendBundle  from './actions/sendBundle';
 
 export default async function createToken() {
     const provider = new anchor.AnchorProvider(
@@ -96,34 +97,56 @@ export default async function createToken() {
     }
     const data : Buffer = fs.readFileSync(`./img/${files[0]}`);
 
-    let formData = new FormData();
+    const formData = new FormData();
     if(data){
-        formData.append('file', new Blob([data], { type: 'image/jpg' }));
+        const blob = new Blob([data], { type: 'image/jpeg' }); 
+        formData.append('file', blob, files[0]);
     } else {
         console.log('No data found');
         return;
     }
-    formData.append('name', name);
-    formData.append('symbol', symbol);
-    formData.append('description', description);
-    formData.append('twitter', twitter);
-    formData.append('telegram', telegram);
-    formData.append('website', website);
-    formData.append('showName', 'true');
 
-    let metadata_uri;
+    formData.append('name', "PPTest"); //name
+    formData.append('symbol', "TEST"); //symbol
+    formData.append('description', 'his is an example token created via PumpPortal.fun'); //description
+    formData.append('twitter', "https://x.com/a1lon9/status/1812970586420994083"); //twitter
+    formData.append('telegram', "https://x.com/a1lon9/status/1812970586420994083"); //telegram
+    formData.append('website', "https://pumpportal.fun"); //website
+    formData.append('showName', 'true'); //showName
 
-    try {
-        const response = await fetch('https://pump.fun/api/ipfs', {
-            method: 'POST',
+	let metadata_uri;
+	try {
+        let metadata_uri;
+        let request = await fetch("https://pump.fun/api/ipfs", {
+            method: "POST",
+            headers: {
+              "Host": "www.pump.fun",
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+              "Accept": "*/*",
+              "Accept-Language": "en-US,en;q=0.5",
+              "Accept-Encoding": "gzip, deflate, br, zstd",
+              "Referer": "https://www.pump.fun/create",
+              "Origin": "https://www.pump.fun",
+              "Connection": "keep-alive",
+              "Sec-Fetch-Dest": "empty",
+              "Sec-Fetch-Mode": "cors",
+              "Sec-Fetch-Site": "same-origin",
+              "Priority": "u=1",
+              "TE": "trailers"
+            },
             body: formData,
-        });
-        const responseData = await response.json();
-        const metadata_uri = responseData.metadataUri;
-        console.log(metadata_uri);
+          });
+          metadata_uri = await request.json();
     } catch (error) {
-        console.error('Error uploading metadata to IPFS:', error);
+        console.error("Error uploading metadata:", error);
     }
+    
+    console.log(metadata_uri);
+    metadata_uri = JSON.stringify({"name":"Bolt token","symbol":"Bolt2","description":"Brave Veer & Bolt","showName":true,"createdOn":"https://pump.fun"});
+
+
+
+   
 
     const dataPool = fs.readFileSync(`./pool/info.json`);
     const pool = JSON.parse(dataPool.toString());
@@ -137,6 +160,9 @@ export default async function createToken() {
         [Buffer.from("metadata"), MPL_TOKEN_METADATA_PROGRAM_ID.toBytes(), mintKp.publicKey.toBytes()], 
         MPL_TOKEN_METADATA_PROGRAM_ID
     )
+    const associatedBondingCurve = spl.getAssociatedTokenAddressSync(mintKp.publicKey, bondingCurve , true);
+    console.log(associatedBondingCurve);
+    console.log(bondingCurve);
 
     const account1 = mintKp.publicKey;
     const account2 = mintAuthority;
@@ -145,6 +171,7 @@ export default async function createToken() {
     const account5 = MPL_TOKEN_METADATA_PROGRAM_ID;
     const account6 = metadata;
     const account7 = feeRecipient;
+    const assAccount = associatedBondingCurve;
 
     const createIx = await program.methods
         .create(name , symbol, metadata_uri)
@@ -152,10 +179,11 @@ export default async function createToken() {
             mint : account1,
             mintAuthority : account2,
             bondingCurve : account3,
-            associatedBondingCurve: bondingCurve,
+            associatedBondingCurve: assAccount,
             global : account4,
             mplTokenMetadata : account5,
             metadata : account6,
+            user : wallet.publicKey,
             systemProgram : SystemProgram.programId,
             tokenProgram : spl.TOKEN_PROGRAM_ID,
             associatedTokenProgram : spl.ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -164,6 +192,7 @@ export default async function createToken() {
             program : PUMP_PROGRAM
         })
     .instruction();
+    //*
 
     const ata = spl.getAssociatedTokenAddressSync(mintKp.publicKey, wallet.publicKey);
     const ataIx = spl.createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, ata,wallet.publicKey, mintKp.publicKey,);
@@ -176,8 +205,9 @@ export default async function createToken() {
         console.log('No keypair info found');
         return;
     }
-    const amount =  new BN(mainWallet.tokenAmount, 16);
-	const solAmount = new BN(100000 *mainWallet.solAmount * LAMPORTS_PER_SOL);
+    //const amount =  new BN(mainWallet.tokenAmount, 16);
+    const amount = new BN(mainWallet.tokenAmount);
+	const solAmount = new BN(mainWallet.solAmount * LAMPORTS_PER_SOL);
 
     const buyIx = await program.methods
         .buy(amount , solAmount)
@@ -191,7 +221,7 @@ export default async function createToken() {
             mint : account1,
             program : PUMP_PROGRAM,
             bondingCurve : account3,
-            associatedBondingCurve : bondingCurve,
+            associatedBondingCurve : assAccount,
             associatedUser: wallet.publicKey,
         })
         .instruction();
@@ -202,7 +232,7 @@ export default async function createToken() {
         lamports: BigInt(0.01*LAMPORTS_PER_SOL),
     })
 
-    const initIxs  : TransactionInstruction[] = [createIx, ataIx , buyIx , tipIxn];
+    const initIxs  : TransactionInstruction[] = [createIx, ataIx , buyIx , tipIxn]; // buyIx is not needed
 
     const {blockhash } = await connection.getLatestBlockhash();
 
@@ -217,7 +247,12 @@ export default async function createToken() {
 
     bundledTxns.push(fullTX);
 
-    console.log(buyIx);
+   // console.log(buyIx);
+    // TODO : test first buy 
+
+    sendBundle(bundledTxns);
+    
+   
 
 }
 
