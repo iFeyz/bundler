@@ -205,9 +205,9 @@ export default async function createToken() {
         console.log('No keypair info found');
         return;
     }
-    //const amount =  new BN(mainWallet.tokenAmount, 16);
-    const amount = new BN(mainWallet.tokenAmount);
-	const solAmount = new BN(mainWallet.solAmount * LAMPORTS_PER_SOL);
+    const amount =  new BN(mainWallet.tokenAmount, 16);
+    //const amount = new BN(mainWallet.tokenAmount);
+	const solAmount = new BN(1000 * mainWallet.solAmount * LAMPORTS_PER_SOL);
 
     const buyIx = await program.methods
         .buy(amount , solAmount)
@@ -222,14 +222,15 @@ export default async function createToken() {
             program : PUMP_PROGRAM,
             bondingCurve : account3,
             associatedBondingCurve : assAccount,
-            associatedUser: wallet.publicKey,
+            associatedUser: ata,
+            user: wallet.publicKey,
         })
         .instruction();
 
     const tipIxn = SystemProgram.transfer({
         fromPubkey: wallet.publicKey,
         toPubkey: getRandomTipAccount(),
-        lamports: BigInt(0.01*LAMPORTS_PER_SOL),
+        lamports: BigInt(0.001*LAMPORTS_PER_SOL),
     })
 
     const initIxs  : TransactionInstruction[] = [createIx, ataIx , buyIx , tipIxn]; // buyIx is not needed

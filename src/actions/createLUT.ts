@@ -8,7 +8,7 @@ import sendBundle from "./sendBundle";
 import { payer } from "../../config";
 export default async function createLUT() {
     let poolInfo : string;
-    const jitoTipAmt = 0.01 * LAMPORTS_PER_SOL;
+    const jitoTipAmt = 0.001 * LAMPORTS_PER_SOL;
     const bundledTxns : VersionedTransaction[] = [];
 
 

@@ -42,7 +42,7 @@ export const extendLUT = async () => {
     };
     const provider = new AnchorProvider(connection, wallet as any, {});
     setProvider(provider);
-    const program = new Program(idl as any, PUMP_PROGRAM as any);
+    const program = new Program(idl as Idl, PUMP_PROGRAM);
 
     fs.writeFileSync('./pool/info.json', JSON.stringify(updatedData, null, 2));
 
@@ -157,7 +157,7 @@ export const extendLUT = async () => {
         SystemProgram.transfer({
             fromPubkey: payer.publicKey,
             toPubkey: getRandomTipAccount(),
-            lamports: BigInt(0.01 * LAMPORTS_PER_SOL), // jito tip add modifier TODO
+            lamports: BigInt(0.001 * LAMPORTS_PER_SOL), // jito tip add modifier TODO
         })
     );
     const { blockhash: block1 } = await connection.getLatestBlockhash();
