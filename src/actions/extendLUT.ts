@@ -157,7 +157,7 @@ export const extendLUT = async () => {
         SystemProgram.transfer({
             fromPubkey: payer.publicKey,
             toPubkey: getRandomTipAccount(),
-            lamports: BigInt(0.001 * LAMPORTS_PER_SOL), // jito tip add modifier TODO
+            lamports: BigInt(0.00001 * LAMPORTS_PER_SOL), // jito tip add modifier TODO
         })
     );
     const { blockhash: block1 } = await connection.getLatestBlockhash();
@@ -173,4 +173,3 @@ export const extendLUT = async () => {
     await sendBundle(bundledTxns1);
 };
 
-extendLUT();

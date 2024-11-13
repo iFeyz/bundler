@@ -1,59 +1,210 @@
-    //*
-
-    const ata = spl.getAssociatedTokenAddressSync(mintKp.publicKey, wallet.publicKey);
-    const ataIx = spl.createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, ata,wallet.publicKey, mintKp.publicKey,);
-
-
-    // Excratct token info from  main wallet
-    const mainWalletInfo = fs.readFileSync(`./wallet-main/wallet-main.json`);
-    const mainWallet = JSON.parse(mainWalletInfo.toString());
-    if(!mainWalletInfo){
-        console.log('No keypair info found');
-        return;
-    }
-    const amount =  new BN(mainWallet.tokenAmount, 16);
-	const solAmount = new BN(mainWallet.solAmount * LAMPORTS_PER_SOL);
-
-    const buyIx = await program.methods
-        .buy(amount , solAmount)
-        .accounts({
-            systemProgram : SystemProgram.programId,
-            tokenProgram : spl.TOKEN_PROGRAM_ID,
-            rent : SYSVAR_RENT_PUBKEY,
-            global : account4,
-            feeRecipient : account7,
-            eventAuthority,
-            mint : account1,
-            program : PUMP_PROGRAM,
-            bondingCurve : account3,
-            associatedBondingCurve : assAccount,
-            associatedUser: wallet.publicKey,
-        })
-        .instruction();
-
-    const tipIxn = SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: getRandomTipAccount(),
-        lamports: BigInt(0.01*LAMPORTS_PER_SOL),
-    })
-
-    const initIxs  : TransactionInstruction[] = [createIx, ataIx  , tipIxn]; // buyIx is not needed
-
-    const {blockhash } = await connection.getLatestBlockhash();
-
-    const messageV0 =  new TransactionMessage({
-        payerKey : wallet.publicKey,
-        instructions : initIxs,
-        recentBlockhash : blockhash,
-    }).compileToV0Message();
-
-    const fullTX = new VersionedTransaction(messageV0);
-    fullTX.sign([wallet , mintKp]);
-
-    bundledTxns.push(fullTX);
-
-   // console.log(buyIx);
-    // TODO : test first buy 
-
-    sendBundle(bundledTxns);
+import { LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { connection, payer, wallet } from "../../config";
+import { Transaction, TransactionInstruction , Keypair, SystemProgram, VersionedTransaction } from "@solana/web3.js";
+import fs from 'fs';
+import { loadKeypairs } from "../utils/utils";
+import { getRandomTipAccount } from "../clients/config";
+import sendBundle from "./sendBundle";
+import { PublicKey, Blockhash , TransactionMessage } from "@solana/web3.js";
+async function sendToAllWallets(){
+    const jitoTipAmt = 0.001 * LAMPORTS_PER_SOL;
+    const {blockhash} = await connection.getLatestBlockhash();
+    const sendTxns : VersionedTransaction[] = [];
+    async function transactionToAllWalletsBuyer(jitoTipAmt: number) {
+    const ixs: TransactionInstruction[] = [];
     
+    // Add logging to verify the main wallet data
+    const mainWalletData = JSON.parse(fs.readFileSync('./wallet-main/wallet-main.json', 'utf-8'));
+    console.log('Main wallet data:', mainWalletData);
+    
+    const solMainAmount = parseFloat(mainWalletData.solAmount);
+    console.log('Amount to send:', (solMainAmount * 1.015 + 0.0025), 'SOL');
+
+    // Add transfer to main wallet
+    ixs.push(
+        SystemProgram.transfer({
+            fromPubkey: payer.publicKey,
+            toPubkey: wallet.publicKey,
+            lamports: Math.floor((solMainAmount * 1.015 + 0.0025) * LAMPORTS_PER_SOL)
+        })
+    );
+
+    // Add Jito tip
+    ixs.push(
+        SystemProgram.transfer({
+            fromPubkey: payer.publicKey,
+            toPubkey: getRandomTipAccount(),
+            lamports: jitoTipAmt
+        })
+    );
+
+    console.log('Number of instructions:', ixs.length);
+    console.log('Instructions:', ixs);
+    return ixs;
+}
+   const solIxs= await transactionToAllWalletsBuyer(jitoTipAmt);
+   const solIxsTEST = await transactionToAllWalletsBuyertest(jitoTipAmt);
+    const solTxns = await processInstructionsSOL(solIxs , blockhash);
+    sendTxns.push(...solTxns);
+    await sendBundle(sendTxns);
+
+}
+
+async function createAndSignVersionedTxWithKeypairs(instructionsChunk: TransactionInstruction[], blockhash: string | Blockhash): Promise<VersionedTransaction> {
+    const data = fs.readFileSync('./pool/info.json', 'utf-8');
+    const poolInfo = JSON.parse(data);
+    console.log(poolInfo);
+    const lut = new PublicKey(poolInfo.poolInfo);
+    const lookupTableAccount = (await connection.getAddressLookupTable(lut)).value;
+    if(!lookupTableAccount){
+        throw new Error('Lookup table account not found');
+    }
+
+
+    const message = new TransactionMessage({
+        payerKey: payer.publicKey,
+        recentBlockhash: blockhash,
+        instructions: instructionsChunk
+    }).compileToV0Message([lookupTableAccount]);
+
+    const versionedTx = new VersionedTransaction(message);
+    versionedTx.sign([payer]);
+    return versionedTx;
+
+
+}
+async function processInstructionsSOL(ixs: TransactionInstruction[], blockhash: string | Blockhash): Promise<VersionedTransaction[]> {
+	const txns: VersionedTransaction[] = [];
+	const instructionChunks = chunkArray(ixs, 45);
+
+	for (let i = 0; i < instructionChunks.length; i++) {
+		const versionedTx = await createAndSignVersionedTxWithKeypairs(instructionChunks[i], blockhash);
+		txns.push(versionedTx);
+	}
+
+	return txns;
+}
+function chunkArray<T>(array: T[], chunkSize: number): T[][] {
+	const chunks = [];
+	for (let i = 0; i < array.length; i += chunkSize) {
+		chunks.push(array.slice(i, i + chunkSize));
+	}
+	return chunks;
+}
+
+
+async function transactionToAllWalletsBuyer(jitoTipAmt: number){
+    const txns : TransactionInstruction[] = [];
+    const ixs: TransactionInstruction[] = [];
+    const keypairs: Keypair[] = [];
+    const mainWalletData = JSON.parse(fs.readFileSync('./wallet-main/wallet-main.json', 'utf-8'));
+
+    const solMainAmmount = parseFloat(mainWalletData.solAmount);
+    const a = new PublicKey("ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49");
+
+    ixs.push(
+        SystemProgram.transfer({
+            fromPubkey: payer.publicKey,
+            toPubkey: wallet.publicKey,
+            lamports: Math.floor((solMainAmmount * 1.015 + 0.0025) * LAMPORTS_PER_SOL)
+        })
+    )
+    const walletKeypairs = await loadKeypairs();
+    const numberOfWallets = walletKeypairs.length;
+    //for(let i = 0; i < numberOfWallets; i++){
+    //    const walletData = JSON.parse(fs.readFileSync(`./wallets/wallet-${walletKeypairs[i].publicKey.toBase58().slice(0, 8)}.json`, 'utf-8'));
+    //    const keypairPubkey = new PublicKey(walletData.publicKey);
+    //    const consoleLogKeypairPubkey = walletData.publicKey
+    //    const solAmount = parseFloat(walletData.solAmount);
+
+    //    try {
+    //        ixs.push(
+    //            SystemProgram.transfer({
+    //                fromPubkey: payer.publicKey,
+    //                toPubkey: keypairPubkey,
+    //                lamports: Math.floor((solAmount * 1.015 + 0.0025) * LAMPORTS_PER_SOL)
+    //              })
+    //        )
+    //        console.log(`Sent ${(solAmount * 1.015 + 0.0025).toFixed(3)} SOL to Wallet ${i + 1} (${consoleLogKeypairPubkey.slice(0, 8)})`);
+    //    } catch (error) {
+    //        console.log(`Error with wallet ${consoleLogKeypairPubkey.toBase58().slice(0, 8)}`);
+    //    }
+    //}
+
+    ixs.push(
+        SystemProgram.transfer({
+            fromPubkey: payer.publicKey,
+            toPubkey: getRandomTipAccount(),
+            lamports: jitoTipAmt 
+        })
+    )
+    console.log(ixs)
+    return ixs;
+}
+
+async function sendTransaction() {
+    try {
+        const { blockhash } = await connection.getLatestBlockhash();
+        // Create TransactionMessage
+        const message = new TransactionMessage({
+            payerKey: payer.publicKey,
+            recentBlockhash: blockhash,
+            instructions: [
+                SystemProgram.transfer({
+                    fromPubkey: payer.publicKey,
+                    toPubkey: wallet.publicKey,
+                    lamports: LAMPORTS_PER_SOL * 0.002,
+                })
+            ]
+        }).compileToV0Message();
+
+        // Create VersionedTransaction
+        const transaction = new VersionedTransaction(message);
+        transaction.sign([payer]);
+
+        const signature = await connection.sendTransaction(transaction);
+        console.log('Transaction sent:', signature);
+
+        // Optional: Wait for confirmation
+        const confirmation = await connection.confirmTransaction(signature);
+        console.log('Transaction confirmed:', confirmation);
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+async function transactionToAllWalletsBuyertest(jitoTipAmt: number) {
+    const ixs: TransactionInstruction[] = [];
+    
+    // Add logging to verify the main wallet data
+    const mainWalletData = JSON.parse(fs.readFileSync('./wallet-main/wallet-main.json', 'utf-8'));
+    console.log('Main wallet data:', mainWalletData);
+    
+    const solMainAmount = parseFloat(mainWalletData.solAmount);
+    console.log('Amount to send:', (solMainAmount * 1.015 + 0.0025), 'SOL');
+    const a = new PublicKey("ELxmAwRqp3YmrYV55qsSyZbyR2eoYxWWzQJipD6NrVxE");
+    // Add transfer to main wallet
+    ixs.push(
+        SystemProgram.transfer({
+            fromPubkey: payer.publicKey,
+            toPubkey: a,
+            lamports: Math.floor((solMainAmount * 1.015 + 0.0025) * LAMPORTS_PER_SOL)
+        })
+    );
+
+    // Add Jito tip
+    ixs.push(
+        SystemProgram.transfer({
+            fromPubkey: payer.publicKey,
+            toPubkey: getRandomTipAccount(),
+            lamports: jitoTipAmt
+        })
+    );
+
+    console.log('Number of instructions:', ixs.length);
+    console.log('Instructions:', ixs);
+    return ixs;
+}
+// Send to all wallets funct
+sendToAllWallets();
+//sendTransaction();

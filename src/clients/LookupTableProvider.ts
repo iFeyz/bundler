@@ -4,7 +4,7 @@ import {
     AddressLookupTableProgram,
     PublicKey,
   } from '@solana/web3.js'; 
-import { connection } from '../../config';
+
   
 
 class LookupTableProvider {

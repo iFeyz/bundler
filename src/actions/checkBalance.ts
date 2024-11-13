@@ -98,4 +98,4 @@ async function checkBalance(){
     await mainMenu();
 }
 
-export default checkBalance;
+export {checkBalance}; 

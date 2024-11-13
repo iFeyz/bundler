@@ -1,6 +1,6 @@
 import inquirer from 'inquirer';
-import createWallets from './createWallets';
-import checkBalance from './actions/checkBalance';
+import {createWallets} from './createWallets';
+import {checkBalance} from './actions/checkBalance';
 import setBuyAmount from './actions/setBuyAmount';
 import buyPerWallets from './actions/buyPerWallets';
 const manageWallets = async () => {
@@ -21,4 +21,4 @@ const manageWallets = async () => {
     }
 }
 
-export default manageWallets;
+export {manageWallets};

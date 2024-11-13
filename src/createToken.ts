@@ -18,8 +18,10 @@ import { TransactionMessage } from '@solana/web3.js';
 import { protobufPackage } from '../jito-ts/src/gen/geyser/confirmed_block';
 import { global, feeRecipient } from '../config';
 import  sendBundle  from './actions/sendBundle';
+import { createWalletSwaps } from './actions/swapToken';
+import { Connection } from '@solana/web3.js';
 
-export default async function createToken() {
+export async function createToken() {
     const provider = new anchor.AnchorProvider(
         new anchor.web3.Connection(rpc), 
         new anchor.Wallet(wallet), 
@@ -42,7 +44,13 @@ export default async function createToken() {
     }
 
     // Load the address LUT
-
+    const poolData = fs.readFileSync(`./pool/info.json`);
+    const poold = JSON.parse(poolData.toString());
+    const lut = new PublicKey(poold.poolInfo);
+    const lookupTableAccount = (await connection.getAddressLookupTable(lut)).value;
+    if(!lookupTableAccount){
+        throw new Error('Lookup table account not found');
+    }
     const {name} = await inquirer.prompt([{
         type: 'input',
         name: 'name',
@@ -160,7 +168,7 @@ export default async function createToken() {
         [Buffer.from("metadata"), MPL_TOKEN_METADATA_PROGRAM_ID.toBytes(), mintKp.publicKey.toBytes()], 
         MPL_TOKEN_METADATA_PROGRAM_ID
     )
-    const associatedBondingCurve = spl.getAssociatedTokenAddressSync(mintKp.publicKey, bondingCurve , true);
+    const associatedBondingCurve = spl.getAssociatedTokenAddressSync(mintKp.publicKey, bondingCurve , true );
     console.log(associatedBondingCurve);
     console.log(bondingCurve);
 
@@ -230,7 +238,7 @@ export default async function createToken() {
     const tipIxn = SystemProgram.transfer({
         fromPubkey: wallet.publicKey,
         toPubkey: getRandomTipAccount(),
-        lamports: BigInt(0.001*LAMPORTS_PER_SOL),
+        lamports: BigInt(0.0001*LAMPORTS_PER_SOL),
     })
 
     const initIxs  : TransactionInstruction[] = [createIx, ataIx , buyIx , tipIxn]; // buyIx is not needed
@@ -246,11 +254,10 @@ export default async function createToken() {
     const fullTX = new VersionedTransaction(messageV0);
     fullTX.sign([wallet , mintKp]);
 
-    bundledTxns.push(fullTX);
-
-   // console.log(buyIx);
-    // TODO : test first buy 
-
+   //bundledTxns.push(fullTX);
+    const txMainSwaps : VersionedTransaction[] = await createWalletSwaps(blockhash , keypairs , lookupTableAccount , account3 , assAccount , mintKp.publicKey , program);
+    bundledTxns.push(...txMainSwaps);
+    
     sendBundle(bundledTxns);
     
    
@@ -270,10 +277,99 @@ async function testKeyInfo() {
     console.log( keyInfo);
 }
 
-// Add this line at the bottom of the file to run the test
-// createToken();
-createToken()
+async function testBuyTransaction() {
+    const provider = new anchor.AnchorProvider(
+        new anchor.web3.Connection("https://api.devnet.solana.com"), 
+        new anchor.Wallet(wallet), 
+        { commitment: "confirmed" }
+    );
+    const IDL_PumpFun = JSON.parse(fs.readFileSync("./pumpfun-IDL.json", "utf-8")) as anchor.Idl;
+    const program = new anchor.Program(IDL_PumpFun, PUMP_PROGRAM, provider);
+    // Connexion à devnet
+    const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+    
+    // Charger votre wallet test
+    const testWallet = Keypair.generate(); // ou chargez un wallet existant
+    
+    // Airdrop de SOL pour les tests
+    const airdropSignature = await connection.requestAirdrop(
+        testWallet.publicKey,
+        LAMPORTS_PER_SOL
+    );
+    await connection.confirmTransaction(airdropSignature);
+    
+    // Paramètres de test
+    const amount = new BN(1000000); // montant de tokens à acheter
+    const solAmount = new BN(0.1 * LAMPORTS_PER_SOL); // montant de SOL à dépenser
+    
+    // Récupérer le dernier blockhash
+    const { blockhash } = await connection.getLatestBlockhash();
+    
+    // Définir les variables manquantes
+    const mintKp = Keypair.generate(); // Pour le test, créer un nouveau mint
+    const account1 = mintKp.publicKey;
+    const [bondingCurve] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bonding-curve"), mintKp.publicKey.toBytes()], 
+        program.programId
+    );
+    const account3 = bondingCurve;
+    const associatedBondingCurve = spl.getAssociatedTokenAddressSync(
+        mintKp.publicKey, 
+        bondingCurve, 
+        true
+    );
+    const assAccount = associatedBondingCurve;
+    
+    // Créer l'ATA pour le testWallet
+    const ataAddress = spl.getAssociatedTokenAddressSync(
+        mintKp.publicKey,
+        testWallet.publicKey
+    );
+    
+    // Créer l'instruction buy avec les comptes corrects
+    const buyIx = await program.methods
+        .buy(amount, solAmount)
+        .accounts({
+            systemProgram: SystemProgram.programId,
+            tokenProgram: spl.TOKEN_PROGRAM_ID,
+            rent: SYSVAR_RENT_PUBKEY,
+            global: global,
+            feeRecipient: feeRecipient,
+            eventAuthority: eventAuthority,
+            mint: account1,
+            program: PUMP_PROGRAM,
+            bondingCurve: account3,
+            associatedBondingCurve: assAccount,
+            associatedUser: ataAddress,
+            user: testWallet.publicKey,
+        })
+        .instruction();
 
+    // Créer la transaction
+    const messageV0 = new TransactionMessage({
+        payerKey: testWallet.publicKey,
+        recentBlockhash: blockhash,
+        instructions: [buyIx],
+    }).compileToV0Message();
+
+    const transaction = new VersionedTransaction(messageV0);
+    
+    // Signer la transaction
+    transaction.sign([testWallet]);
+    
+    try {
+        // Envoyer la transaction
+        const signature = await connection.sendTransaction(transaction);
+        console.log("Transaction envoyée avec succès !");
+        console.log("Signature:", signature);
+        
+        // Attendre la confirmation
+        const confirmation = await connection.confirmTransaction(signature);
+        console.log("Transaction confirmée :", confirmation);
+    } catch (error) {
+        console.error("Erreur lors de l'envoi de la transaction :", error);
+    }
+}
 
 
 

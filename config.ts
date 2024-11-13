@@ -22,6 +22,7 @@ export function getMainWalletPublicKey(): PublicKey {
 }
 
 export const connection = new Connection(rpc);
+export const connectionTestnet = new Connection("https://api.devnet.solana.com");
 export const MPL_TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 export const PUMP_PROGRAM : PublicKey = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 export const mintAuthority = new PublicKey("TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM");
